@@ -1,5 +1,4 @@
-﻿/// Structures for data received: rows and result sets (ie, a range of rows).
-module mysql.result;
+﻿module mysql.result;
 
 import std.conv;
 import std.exception;
@@ -14,17 +13,6 @@ import mysql.protocol.extra_types;
 import mysql.protocol.packets;
 import mysql.protocol.sockets;
 
-/++
-A struct to represent a single row of a result set.
-
-The row struct is used for both 'traditional' and 'prepared' result sets.
-It consists of parallel arrays of Variant and bool, with the bool array
-indicating which of the result set columns are NULL.
-
-I have been agitating for some kind of null indicator that can be set for a
-Variant without destroying its inherent type information. If this were the
-case, then the bool array could disappear.
-+/
 struct Row
 {
 	import mysql.connection;
@@ -93,24 +81,6 @@ private:
 
 public:
 
-	/++
-	A constructor to extract the column data from a row data packet.
-	
-	If the data for the row exceeds the server's maximum packet size, then several packets will be
-	sent for the row that taken together constitute a logical row data packet. The logic of the data
-	recovery for a Row attempts to minimize the quantity of data that is bufferred. Users can assist
-	in this by specifying chunked data transfer in cases where results sets can include long
-	column values.
-	
-	The row struct is used for both 'traditional' and 'prepared' result sets. It consists of parallel arrays
-	of Variant and bool, with the bool array indicating which of the result set columns are NULL.
-	
-	I have been agitating for some kind of null indicator that can be set for a Variant without destroying
-	its inherent type information. If this were the case, then the bool array could disappear.
-	However, this inherent type information was never actually used, or even tracked, by struct Row for null fields.
-	So this is may be nothing to be concerned about. If such info is needed later, perhaps
-	`_values` could store its elements as `Nullable!T`?
-	+/
 	this(Connection con, ref ubyte[] packet, ResultSetHeaders rh, bool binary)
 	in
 	{
@@ -162,15 +132,6 @@ public:
 		}
 	}
 
-	/++
-	Simplify retrieval of a column value by index.
-	
-	To check for null, use Variant's .type property:
-	`row[index].type == typeid(typeof(null))`
-	
-	Params: i = the zero based index of the column whose value is required.
-	Returns: A Variant holding the column value.
-	+/
 	inout(Variant) opIndex(size_t i) inout
 	{
 		enforceEx!MYX(_nulls.length > 0, format("Cannot get column index %d. There are no columns", i));
@@ -178,33 +139,11 @@ public:
 		return _values[i];
 	}
 
-	/++
-	Check if a column in the result row was NULL
-	
-	Params: i = The zero based column index.
-	+/
 	bool isNull(size_t i) const pure nothrow { return _nulls[i]; }
 
-	/++
-	Get the number of elements (columns) in this row.
-	+/
 	@property size_t length() const pure nothrow { return _values.length; }
-
-	///ditto
 	alias opDollar = length;
 
-	/++
-	Move the content of the row into a compatible struct
-	
-	This method takes no account of NULL column values. If a column was NULL,
-	the corresponding Variant value would be unchanged in those cases.
-	
-	The method will throw if the type of the Variant is not implicitly
-	convertible to the corresponding struct member.
-	
-	Params: S = a struct type.
-	               s = an ref instance of the type
-	+/
 	void toStruct(S)(ref S s) if (is(S == struct))
 	{
 		foreach (i, dummy; s.tupleof)
@@ -245,36 +184,6 @@ public:
 	}
 }
 
-/// Deprecated. Replaced by
-/// $(LINK2 https://dlang.org/phobos/std_variant.html, std.variant.Variant).
-deprecated("Use std.variant.Variant instead.")
-struct DBValue
-{
-	Variant value;
-	bool isNull;
-}
-
-/++
-A $(LINK2 http://dlang.org/phobos/std_range_primitives.html#isRandomAccessRange, random access range)
-of Row.
-
-This is being considered for deprecation in a future release of mysql-native,
-because the same thing can be achieved by passing a `ResultRange` to
-$(LINK2 https://dlang.org/phobos/std_array.html#array, `std.array.array()`).
-
-This is returned by the `mysql.commands.querySet` and
-`mysql.prepared.PreparedImpl.querySet` functions.
-
-Unlike `ResultRange`, this offers random access to the individual rows via
-array-like indexing and a `length` member to check the number of rows received
-without having to count them.
-
-However, this random access comes with a downside: Unlike `ResultRange`, using
-`ResultSet` means ALL the rows are downloaded and stored in
-memory before you can access any of them. So use this only if you really need
-random-access and you're not likely to be dealing with large numbers of rows.
-Otherwise, consider using `query` to receive a `ResultRange` instead.
-+/
 struct ResultSet
 {
 private:
@@ -292,68 +201,38 @@ package:
 	}
 
 public:
-	/++
-	Make the ResultSet behave as a random access range - empty
-	
-	+/
+
 	@property bool empty() const pure nothrow { return _curRows.length == 0; }
 
-	/++
-	Make the ResultSet behave as a random access range - save
-	
-	+/
 	@property ResultSet save() pure nothrow
 	{
 		return this;
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - front
-	
-	Gets the first row in whatever remains of the Range.
-	+/
 	@property inout(Row) front() pure inout
 	{
 		enforceEx!MYX(_curRows.length, "Attempted to get front of an empty ResultSet");
 		return _curRows[0];
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - back
-	
-	Gets the last row in whatever remains of the Range.
-	+/
 	@property inout(Row) back() pure inout
 	{
 		enforceEx!MYX(_curRows.length, "Attempted to get back on an empty ResultSet");
 		return _curRows[$-1];
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - popFront()
-	
-	+/
 	void popFront() pure
 	{
 		enforceEx!MYX(_curRows.length, "Attempted to popFront() on an empty ResultSet");
 		_curRows = _curRows[1..$];
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - popBack
-	
-	+/
 	void popBack() pure
 	{
 		enforceEx!MYX(_curRows.length, "Attempted to popBack() on an empty ResultSet");
 		_curRows = _curRows[0 .. $-1];
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - opIndex
-	
-	Gets the i'th row of whatever remains of the range
-	+/
 	Row opIndex(size_t i) pure
 	{
 		enforceEx!MYX(_curRows.length, "Attempted to index into an empty ResultSet range.");
@@ -361,30 +240,14 @@ public:
 		return _curRows[i];
 	}
 
-	/++
-	Make the ResultSet behave as a random access range - length
-	
-	+/
 	@property size_t length() pure const nothrow { return _curRows.length; }
 	alias opDollar = length; ///ditto
 
-	/++
-	Restore the range to its original span.
-	
-	Since the range is just a view of the data, we can easily revert to the
-	initial state.
-	+/
 	void revert() pure nothrow
 	{
 		_curRows = _rows[];
 	}
 
-	/++
-	Get a row as an associative array by column name
-	
-	The row in question will be that which was the most recent subject of
-	front, back, or opIndex. If there have been no such references it will be front.
-	+/
 	T[string] asAA(T = Variant)()
 	{
 		enforceEx!MYX(_curRows.length, "Attempted use of empty ResultSet as an associative array.");
@@ -394,10 +257,8 @@ public:
 		return aa;
 	}
 
-	/// Get the names of all the columns
 	@property const(string)[] colNames() const pure nothrow { return _colNames; }
 
-	/// An AA to lookup a column's index by name
 	@property const(size_t[string]) colNameIndicies() pure nothrow
 	{
 		if(_colNameIndicies is null)
@@ -410,23 +271,6 @@ public:
 	}
 }
 
-/++
-An $(LINK2 http://dlang.org/phobos/std_range_primitives.html#isInputRange, input range)
-of Row.
-
-This is returned by the `mysql.commands.query` and
-`mysql.prepared.PreparedImpl.query` functions.
-
-The rows are downloaded one-at-a-time, as you iterate the range. This allows
-for low memory usage, and quick access to the results as they are downloaded.
-This is especially ideal in case your query results in a large number of rows.
-
-However, because of that, this `ResultRange` cannot offer random access or
-a `length` member. If you need random access, then just like any other range,
-you can simply convert this range to an array via
-$(LINK2 https://dlang.org/phobos/std_array.html#array, `std.array.array()`).
-Or, you can use `querySet` to obtain a `ResultSet` instead.
-+/
 struct ResultRange
 {
 private:
@@ -460,13 +304,11 @@ public:
 		close();
 	}
 
-	/// Check whether the range can still we used, or has been invalidated
 	@property bool isValid() const pure nothrow
 	{
 		return _commandID == _con.lastCommandID;
 	}
 
-	/// Make the ResultRange behave as an input range - empty
 	@property bool empty() const pure nothrow
 	{
 		if(!isValid)
@@ -475,11 +317,6 @@ public:
 		return !_con._rowsPending;
 	}
 
-	/++
-	Make the ResultRange behave as an input range - front
-	
-	Gets the current row
-	+/
 	@property inout(Row) front() pure inout
 	{
 		ensureValid();
@@ -487,11 +324,6 @@ public:
 		return _row;
 	}
 
-	/++
-	Make the ResultRange behave as am input range - popFront()
-	
-	Progresses to the next row of the result set - that will then be 'front'
-	+/
 	void popFront()
 	{
 		ensureValid();
@@ -500,9 +332,6 @@ public:
 		_numRowsFetched++;
 	}
 
-	/++
-	Get the current row as an associative array by column name
-	+/
 	T[string] asAA(T = Variant)()
 	{
 		ensureValid();
@@ -513,10 +342,8 @@ public:
 		return aa;
 	}
 
-	/// Get the names of all the columns
 	@property const(string)[] colNames() const pure nothrow { return _colNames; }
 
-	/// An AA to lookup a column's index by name
 	@property const(size_t[string]) colNameIndicies() pure nothrow
 	{
 		if(_colNameIndicies is null)
@@ -528,7 +355,6 @@ public:
 		return _colNameIndicies;
 	}
 
-	/// Explicitly clean up the MySQL resources and cancel pending results
 	void close()
 	out{ assert(!isValid); }
 	body
@@ -537,17 +363,8 @@ public:
 			_con.purgeResult();
 	}
 
-	/++
-	Get the number of currently retrieved.
-	
-	Note that this is not neccessarlly the same as the length of the range.
-	+/
 	@property ulong rowCount() const pure nothrow { return _numRowsFetched; }
 }
-
-///ditto
-deprecated("Use ResultRange instead.")
-alias ResultSequence = ResultRange;
 
 
 private T as(T = Variant)(Variant v)

@@ -1,5 +1,4 @@
-﻿/// Use a DB via SQL prepared statements.
-module mysql.prepared;
+﻿module mysql.prepared;
 
 import std.algorithm;
 import std.conv;
@@ -21,22 +20,6 @@ import mysql.protocol.sockets;
 import mysql.result;
 import mysql.types;
 
-/++
-A struct to represent specializations of prepared statement parameters.
-
-Strongly considering the removal of the isNull field, now that Prepared
-can handle `null` as a value just fine.
-
-There are two specializations. First you can set an isNull flag to indicate that the
-parameter is to have the SQL NULL value.
-
-Second, if you need to send large objects to the database it might be convenient to
-send them in pieces. These two variables allow for this. If both are provided
-then the corresponding column will be populated by calling the delegate repeatedly.
-the source should fill the indicated slice with data and arrange for the delegate to
-return the length of the data supplied. Af that is less than the chunkSize
-then the chunk will be assumed to be the last one.
-+/
 struct ParameterSpecialization
 {
 	import mysql.protocol.constants;
@@ -46,24 +29,8 @@ struct ParameterSpecialization
 	uint chunkSize;
 	uint delegate(ubyte[]) chunkDelegate;
 }
-///ditto
 alias PSN = ParameterSpecialization;
 
-/++
-Encapsulation of a prepared statement.
-
-Commands that are expected to return a result set - queries - have distinctive
-methods that are enforced. That is it will be an error to call such a method
-with an SQL command that does not produce a result set. So for commands like
-SELECT, use the `query` functions. For other commands, like
-INSERT/UPDATE/CREATE/etc, use `exec`.
-
-Internally, `Prepared` simply wraps a `PreparedImpl` with
-$(LINK2 https://dlang.org/phobos/std_typecons.html#.RefCounted, `RefCounted`),
-and offers access to the `PreparedImpl` members via "alias this".
-
-See the `PreparedImpl` documentation for the bulk of the `Prepared` interface.
-+/
 struct Prepared
 {
 	RefCounted!(PreparedImpl, RefCountedAutoInitialize.no) preparedImpl;
@@ -75,44 +42,17 @@ struct Prepared
 	}
 }
 
-/++
-Submit an SQL command to the server to be compiled into a prepared statement.
-
-The result of a successful outcome will be a statement handle - an ID -
-for the prepared statement, a count of the parameters required for
-excution of the statement, and a count of the columns that will be present
-in any result set that the command generates. Thes values will be stored
-in in the Command struct.
-
-The server will then proceed to send prepared statement headers,
-including parameter descriptions, and result set field descriptions,
-followed by an EOF packet.
-
-Throws: MySQLException if there are pending result set items, or if the
-server has a problem.
-+/
 Prepared prepare(Connection conn, string sql)
 {
 	return Prepared( refCounted(PreparedImpl(conn, sql)) );
 }
 
-/++
-Convenience function to create a prepared statement which calls a stored function.
-
-Throws: MySQLException if there are pending result set items, or if the
-server has a problem.
-
-Params:
-	name = The name of the stored function.
-	numArgs = The number of arguments the stored procedure takes.
-+/
 Prepared prepareFunction(Connection conn, string name, int numArgs)
 {
 	auto sql = "select " ~ name ~ preparedPlaceholderArgs(numArgs);
 	return prepare(conn, sql);
 }
 
-///
 unittest
 {
 	debug(MYSQL_INTEGRATION_TESTS)
@@ -135,27 +75,12 @@ unittest
 	}
 }
 
-/++
-Convenience function to create a prepared statement which calls a stored procedure.
-
-OUT parameters are not currently supported. It should generally be
-possible with MySQL to present them as a result set.
-
-Throws: MySQLException if there are pending result set items, or if the
-server has a problem.
-
-Params:
-	name = The name of the stored procedure.
-	numArgs = The number of arguments the stored procedure takes.
-
-+/
 Prepared prepareProcedure(Connection conn, string name, int numArgs)
 {
 	auto sql = "call " ~ name ~ preparedPlaceholderArgs(numArgs);
 	return prepare(conn, sql);
 }
 
-///
 unittest
 {
 	debug(MYSQL_INTEGRATION_TESTS)
@@ -211,12 +136,6 @@ unittest
 	assert(preparedPlaceholderArgs(0) == "()");
 }
 
-/++
-This is the internal implementation of `Prepared`. It is not intended to be
-used directly, as `Prepared` wraps a `PreparedImpl` with
-$(LINK2 https://dlang.org/phobos/std_typecons.html#.RefCounted, `RefCounted`),
-and offers access to the public `PreparedImpl` members via "alias this".
-+/
 struct PreparedImpl
 {
 private:
@@ -283,25 +202,6 @@ private:
 
 	@disable this(this); // Not copyable
 
-	/++
-	Submit an SQL command to the server to be compiled into a prepared statement.
-
-	The result of a successful outcome will be a statement handle - an ID -
-	for the prepared statement, a count of the parameters required for
-	excution of the statement, and a count of the columns that will be present
-	in any result set that the command generates. Thes values will be stored
-	in in the Command struct.
-
-	The server will then proceed to send prepared statement headers,
-	including parameter descriptions, and result set field descriptions,
-	followed by an EOF packet.
-
-	If there is an existing statement handle in the Command struct, that
-	prepared statement is released.
-
-	Throws: MySQLException if there are pending result set items, or if the
-	server has a problem.
-	+/
 	public this(Connection conn, string sql)
 	{
 		this._conn = conn;
@@ -706,14 +606,6 @@ package:
 		conn.send(packet);
 	}
 
-	//TODO: This awkward func is only needed by the deprecated Command struct.
-	//      Remove this once Command struct is finally deleted.
-	bool execQueryImpl2(out ulong ra)
-	{
-		return execQueryImpl(_conn,
-			ExecQueryImplInfo(true, null, _hStmt, _psh, _inParams, _psa), ra);
-	}
-
 	/// Has this statement been released?
 	@property bool isReleased() pure const nothrow
 	{
@@ -726,16 +618,6 @@ public:
 		release();
 	}
 
-	/++
-	Execute a prepared command, such as INSERT/UPDATE/CREATE/etc.
-	
-	This method is intended for commands such as which do not produce a result set
-	(otherwise, use one of the query functions instead.) If the SQL command does
-	produces a result set (such as SELECT), `mysql.exceptions.MySQLResultRecievedException`
-	will be thrown.
-	
-	Returns: The number of rows affected.
-	+/
 	ulong exec()
 	{
 		enforceReadyForCommand();
@@ -745,25 +627,6 @@ public:
 		);
 	}
 
-	/++
-	Execute a prepared SQL SELECT command where you expect the entire
-	result set all at once.
-
-	This is being considered for deprecation in a future release of mysql-native,
-	because the same thing can be achieved via `query`().
-	$(LINK2 https://dlang.org/phobos/std_array.html#array, `array()`).
-
-	If the SQL command does not produce a result set (such as INSERT/CREATE/etc),
-	then `mysql.exceptions.MySQLNoResultRecievedException` will be thrown. Use
-	`exec` instead for such commands.
-
-	If there are long data items among the expected result columns you can use
-	the csa param to specify that they are to be subject to chunked transfer via a
-	delegate.
-
-	Params: csa = An optional array of ColumnSpecialization structs.
-	Returns: A (possibly empty) ResultSet.
-	+/
 	ResultSet querySet(ColumnSpecialization[] csa = null)
 	{
 		enforceReadyForCommand();
@@ -773,29 +636,6 @@ public:
 		);
 	}
 
-	///ditto
-	deprecated("Use querySet instead.")
-	alias queryResult = querySet;
-
-	/++
-	Execute a prepared SQL SELECT command where you want to deal with the
-	result set one row at a time.
-
-	If you need random access to the resulting Row elements,
-	simply call $(LINK2 https://dlang.org/phobos/std_array.html#array, `std.array.array()`)
-	on the result.
-
-	If the SQL command does not produce a result set (such as INSERT/CREATE/etc),
-	then `mysql.exceptions.MySQLNoResultRecievedException` will be thrown. Use
-	`exec` instead for such commands.
-
-	If there are long data items among the expected result columns you can use
-	the csa param to specify that they are to be subject to chunked transfer via a
-	delegate.
-
-	Params: csa = An optional array of ColumnSpecialization structs.
-	Returns: A (possibly empty) ResultRange.
-	+/
 	ResultRange query(ColumnSpecialization[] csa = null)
 	{
 		enforceReadyForCommand();
@@ -805,25 +645,6 @@ public:
 		);
 	}
 
-	///ditto
-	deprecated("Use query instead.")
-	alias querySequence = query;
-
-	/++
-	Execute a prepared SQL SELECT command where you only want the first Row (if any).
-
-	If the SQL command does not produce a result set (such as INSERT/CREATE/etc),
-	then `mysql.exceptions.MySQLNoResultRecievedException` will be thrown. Use
-	`exec` instead for such commands.
-
-	If there are long data items among the expected result columns you can use
-	the csa param to specify that they are to be subject to chunked transfer via a
-	delegate.
-
-	Params: csa = An optional array of ColumnSpecialization structs.
-	Returns: Nullable!Row: This will be null (check via Nullable.isNull) if the
-	query resulted in an empty result set.
-	+/
 	Nullable!Row queryRow(ColumnSpecialization[] csa = null)
 	{
 		enforceReadyForCommand();
@@ -831,22 +652,6 @@ public:
 			ExecQueryImplInfo(true, null, _hStmt, _psh, _inParams, _psa));
 	}
 
-	/++
-	Execute a prepared SQL SELECT command where you only want the first Row, and
-	place result values into a set of D variables.
-	
-	This method will throw if any column type is incompatible with the corresponding D variable.
-
-	Unlike the other query functions, queryRowTuple will throw
-	`mysql.exceptions.MySQLException` if the result set is empty
-	(and thus the reference variables passed in cannot be filled).
-
-	If the SQL command does not produce a result set (such as INSERT/CREATE/etc),
-	then `mysql.exceptions.MySQLNoResultRecievedException` will be thrown. Use
-	`exec` instead for such commands.
-	
-	Params: args = A tuple of D variables to receive the results.
-	+/
 	void queryRowTuple(T...)(ref T args)
 	{
 		enforceReadyForCommand();
@@ -857,54 +662,12 @@ public:
 		);
 	}
 
-	///ditto
-	deprecated("Use queryRowTuple instead.")
-	alias queryTuple = queryRowTuple;
-
-	/++
-	Execute a prepared SQL SELECT command and returns a single value,
-	the first column of the first row received.
-
-	If the query did not produce any rows, OR the rows it produced have zero columns,
-	this will return `Nullable!Variant()`, ie, null. Test for this with `result.isNull`.
-
-	If the query DID produce a result, but the value actually received is NULL,
-	then `result.isNull` will be FALSE, and `result.get` will produce a Variant
-	which CONTAINS null. Check for this with `result.get.type == typeid(typeof(null))`.
-
-	If the SQL command does not produce a result set (such as INSERT/CREATE/etc),
-	then `mysql.exceptions.MySQLNoResultRecievedException` will be thrown. Use
-	`exec` instead for such commands.
-
-	If there are long data items among the expected result columns you can use
-	the csa param to specify that they are to be subject to chunked transfer via a
-	delegate.
-
-	Params: csa = An optional array of ColumnSpecialization structs.
-	Returns: Nullable!Variant: This will be null (check via Nullable.isNull) if the
-	query resulted in an empty result set.
-	+/
 	Nullable!Variant queryValue(ColumnSpecialization[] csa = null)
 	{
 		return queryValueImpl(csa, _conn,
 			ExecQueryImplInfo(true, null, _hStmt, _psh, _inParams, _psa));
 	}
 
-	/++
-	Prepared statement parameter setter.
-
-	The value may, but doesn't have to be, wrapped in a Variant. If so,
-	null is handled correctly.
-	
-	The value may, but doesn't have to be, a pointer to the desired value.
-
-	The value may, but doesn't have to be, wrapped in a Nullable!T. If so,
-	null is handled correctly.
-
-	The value can be null.
-
-	Params: index = The zero based index
-	+/
 	void setArg(T)(size_t index, T val, ParameterSpecialization psn = PSN(0, SQLType.INFER_FROM_D_TYPE, 0, null))
 		if(!isInstanceOf!(Nullable, T))
 	{
@@ -933,15 +696,6 @@ public:
 			setArg(index, val.get(), psn);
 	}
 
-	/++
-	Bind a tuple of D variables to the parameters of a prepared statement.
-	
-	You can use this method to bind a set of variables if you don't need any specialization,
-	that is chunked transfer is not neccessary.
-	
-	The tuple must match the required number of parameters, and it is the programmer's
-	responsibility to ensure that they are of appropriate types.
-	+/
 	void setArgs(T...)(T args)
 		if(T.length == 0 || !is(T[0] == Variant[]))
 	{
@@ -952,34 +706,6 @@ public:
 			setArg(i, arg);
 	}
 
-	/++
-	Bind a Variant[] as the parameters of a prepared statement.
-	
-	You can use this method to bind a set of variables in Variant form to
-	the parameters of a prepared statement.
-	
-	Parameter specializations can be added if required. This method could be
-	used to add records from a data entry form along the lines of
-	------------
-	auto c = Command(con, "insert into table42 values(?, ?, ?)");
-	c.prepare();
-	Variant[] va;
-	va.length = 3;
-	DataRecord dr;    // Some data input facility
-	ulong ra;
-	do
-	{
-	    dr.get();
-	    va[0] = dr("Name");
-	    va[1] = dr("City");
-	    va[2] = dr("Whatever");
-	    c.bindParameters(va);
-	    c.execPrepared(ra);
-	} while(tod < "17:30");
-	------------
-	Params: va = External list of Variants to be used as parameters
-	               psnList = any required specializations
-	+/
 	void setArgs(Variant[] va, ParameterSpecialization[] psnList= null)
 	{
 		enforceNotReleased();
@@ -992,11 +718,6 @@ public:
 		}
 	}
 
-	/++
-	Prepared statement parameter getter.
-
-	Params: index = The zero based index
-	+/
 	Variant getArg(size_t index)
 	{
 		enforceNotReleased();
@@ -1004,21 +725,12 @@ public:
 		return _inParams[index];
 	}
 
-	/++
-	Sets a prepared statement parameter to NULL.
-	
-	This is here mainly for legacy reasons. You can set a field to null
-	simply by saying `prepared.setArg(index, null);`
-
-	Params: index = The zero based index
-	+/
 	void setNullArg(size_t index)
 	{
 		enforceNotReleased();
 		setArg(index, null);
 	}
 
-	/// Gets the SQL command for this prepared statement
 	string sql()
 	{
 		return _sql;
@@ -1084,12 +796,6 @@ public:
 		assert(rs[2][0].type == typeid(typeof(null)));
 	}
 
-	/++
-	Release a prepared statement.
-	
-	This method tells the server that it can dispose of the information it
-	holds about the current prepared statement.
-	+/
 	void release()
 	{
 		if(!_hStmt)
@@ -1110,15 +816,12 @@ public:
 		_hStmt = 0;
 	}
 
-	/// Gets the number of arguments this prepared statement expects to be passed in.
 	@property ushort numArgs() pure const nothrow
 	{
 		return _psParams;
 	}
 
-	/// Gets the prepared header's field descriptions.
 	@property FieldDescription[] preparedFieldDescriptions() pure { return _psh.fieldDescriptions; }
 
-	/// Gets the prepared header's param descriptions.
 	@property ParamDescription[] preparedParamDescriptions() pure { return _psh.paramDescriptions; }
 }
