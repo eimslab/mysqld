@@ -696,6 +696,16 @@ public:
 			setArg(index, val.get(), psn);
 	}
 
+	void setArgs(T)(T[] args)
+		if (!is(T[0] == Variant[]) && !is(T[0] == string[]))
+	{
+		enforceNotReleased();
+		enforceEx!MYX(args.length == _psParams, "Argument list supplied does not match the number of parameters.");
+
+		foreach (size_t i, arg; args)
+			setArg(i, arg);
+	}
+
 	void setArgs(T...)(T args)
 		if(T.length == 0 || !is(T[0] == Variant[]))
 	{
