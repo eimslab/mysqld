@@ -696,16 +696,6 @@ public:
 			setArg(index, val.get(), psn);
 	}
 
-	void setArgs(T)(T[] args)
-		if (!is(T[0] == Variant[]) && !is(T[0] == string[]))
-	{
-		enforceNotReleased();
-		enforceEx!MYX(args.length == _psParams, "Argument list supplied does not match the number of parameters.");
-
-		foreach (size_t i, arg; args)
-			setArg(i, arg);
-	}
-
 	void setArgs(T...)(T args)
 		if(T.length == 0 || !is(T[0] == Variant[]))
 	{
@@ -720,6 +710,23 @@ public:
 	{
 		enforceNotReleased();
 		enforceEx!MYX(va.length == _psParams, "Param count supplied does not match prepared statement");
+		_inParams[] = va[];
+		if (psnList !is null)
+		{
+			foreach (PSN psn; psnList)
+				_psa[psn.pIndex] = psn;
+		}
+	}
+	
+	void setArgs(string[] sa, ParameterSpecialization[] psnList= null)
+	{
+		enforceNotReleased();
+		enforceEx!MYX(sa.length == _psParams, "Param count supplied does not match prepared statement");
+		Variant[] va;
+		foreach(str; sa)
+		{
+			va ~= Variant(str);
+		}
 		_inParams[] = va[];
 		if (psnList !is null)
 		{
