@@ -253,7 +253,10 @@ public:
 		enforceEx!MYX(_curRows.length, "Attempted use of empty ResultSet as an associative array.");
 		T[string] aa;
 		foreach (size_t i, string s; _colNames)
-			aa[s] = as!T(front._values[i]);
+			if (front._nulls[i])
+				aa[s] = as!T(Variant(""));
+			else
+				aa[s] = as!T(front._values[i]);
 		return aa;
 	}
 
@@ -338,7 +341,10 @@ public:
 		enforceEx!MYX(!empty, "Attempted 'front' on exhausted result sequence.");
 		T[string] aa;
 		foreach (size_t i, string s; _colNames)
-			aa[s] = as!T(_row._values[i]);
+			if (_row._nulls[i])
+				aa[s] = as!T(Variant(""));
+			else
+				aa[s] = as!T(_row._values[i]);
 		return aa;
 	}
 
@@ -385,7 +391,7 @@ private string asString(Variant src)
 	{
 		return string.init;
 	}
-	
+
 	if (src.convertsTo!string)
 	{
 		return src.get!string;
