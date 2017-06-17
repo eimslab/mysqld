@@ -392,6 +392,11 @@ private string asString(Variant src)
 		return string.init;
 	}
 
+	if ((src.type == typeid(double)) || (src.type == typeid(float)) || (src.type == typeid(real)))
+	{
+		return floatAsString!real(src.get!real);
+	}
+
 	if (src.convertsTo!string)
 	{
 		return src.get!string;
@@ -408,4 +413,12 @@ private string asString(Variant src)
 	{
 		return std.conv.to!string(src);
 	}
+}
+
+private string floatAsString(T = double)(T value)
+{
+	long l = cast(long)value;
+	T f = value - l;
+	
+	return to!string(l) ~ ((f > 0) ? f.to!string[1 .. $] : "");
 }
