@@ -9,7 +9,7 @@
 		"Shove"
 	],
 	"name": "mysqld",
-	"version": "1.0.5",
+	"version": "1.0.6",
 	"license": "BSL-1.0",
 	"copyright": "Copyright (c) 2011-2016 Steve Teale, James W. Oliphant, Simen Endsj, Sonke Ludwig, Sergey Shamov, and Nick Sabalausky, Shove",
 	"description": "A native MySQL driver implementation based on Steve Teale's original",
