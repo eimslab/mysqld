@@ -105,7 +105,7 @@ final class ConnectionPool
 
 	Connection getConnection()
 	{
-		synchronized
+		synchronized(ConnectionPool.classinfo)
 		{
 			Connection conn = getFreeConnection();
 			
