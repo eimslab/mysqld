@@ -1,5 +1,4 @@
-﻿/// Connect to a MySQL/MariaDB server.
-module mysql.connection;
+﻿module mysql.connection;
 
 import std.algorithm;
 import std.conv;
@@ -14,6 +13,7 @@ import mysql.protocol.constants;
 import mysql.protocol.packets;
 import mysql.protocol.sockets;
 import mysql.result;
+import mysql.prepared;
 
 /// The default `mysql.protocol.constants.SvrCapFlags` used when creating a connection.
 immutable SvrCapFlags defaultClientFlags =
@@ -22,60 +22,16 @@ immutable SvrCapFlags defaultClientFlags =
 		SvrCapFlags.SECURE_CONNECTION;// | SvrCapFlags.MULTI_STATEMENTS |
 		//SvrCapFlags.MULTI_RESULTS;
 
-/++
-A class representing a database connection.
-
-If you are using Vibe.d, consider using `mysql.pool.MySQLPool` instead of
-creating a new Connection directly. That will provide certain benefits,
-such as reusing old connections and automatic cleanup (no need to close
-the connection when done).
-
-------------------
-// Suggested usage:
-
-{
-	auto con = new Connection("host=localhost;port=3306;user=joe;pwd=pass123;db=myappsdb");
-	scope(exit) con.close();
-
-	// Use the connection
-	...
-}
-------------------
-+/
 class Connection
 {
-/+
-The Connection is responsible for handshaking with the server to establish
-authentication. It then passes client preferences to the server, and
-subsequently is the channel for all command packets that are sent, and all
-response packets received.
-
-Uncompressed packets consist of a 4 byte header - 3 bytes of length, and one
-byte as a packet number. Connection deals with the headers and ensures that
-packet numbers are sequential.
-
-The initial packet is sent by the server - essentially a 'hello' packet
-inviting login. That packet has a sequence number of zero. That sequence
-number is the incremented by client and server packets through the handshake
-sequence.
-
-After login all further sequences are initialized by the client sending a
-command packet with a zero sequence number, to which the server replies with
-zero or more packets with sequential sequence numbers.
-+/
 package:
 	enum OpenState
 	{
-		/// We have not yet connected to the server, or have sent QUIT to the
-		/// server and closed the connection
 		notConnected,
-		/// We have connected to the server and parsed the greeting, but not
-		/// yet authenticated
 		connected,
-		/// We have successfully authenticated against the server, and need to
-		/// send QUIT to the server when closing the connection
 		authenticated
 	}
+	
 	OpenState   _open;
 	MySQLSocket _socket;
 
@@ -90,31 +46,22 @@ package:
 
 	OpenSocketCallback _openSocket;
 
-	ulong _insertID;
-
-	// This gets incremented every time a command is issued or results are purged,
-	// so a ResultRange can tell whether it's been invalidated.
-	ulong _lastCommandID;
-
-	// Whether there are rows, headers or bimary data waiting to be retreived.
-	// MySQL protocol doesn't permit performing any other action until all
-	// such data is read.
+	ulong _insertId;
+	ulong _lastCommandId;
 	bool _rowsPending, _headersPending, _binaryPending;
-
-	// Field count of last performed command.
 	ushort _fieldCount;
 
-	// ResultSetHeaders of last performed command.
 	ResultSetHeaders _rsh;
 
-	// This tiny thing here is pretty critical. Pay great attention to it's maintenance, otherwise
-	// you'll get the dreaded "packet out of order" message. It, and the socket connection are
-	// the reason why most other objects require a connection object for their construction.
 	ubyte _cpn; /// Packet Number in packet header. Serial number to ensure correct
 				/// ordering. First packet should have 0
 	@property ubyte pktNumber()   { return _cpn; }
 	void bumpPacket()       { _cpn++; }
 	void resetPacket()      { _cpn = 0; }
+
+	// For mysql server not support prepared cache.
+	bool allowClientPreparedCache_ = false;
+	Prepared[string] clientPreparedCaches_;
 
 	pure const nothrow invariant()
 	{
@@ -194,7 +141,7 @@ package:
 
 		scope(failure) kill();
 
-		_lastCommandID++;
+		_lastCommandId++;
 
 		if(!_socket.connected)
 		{
@@ -344,6 +291,7 @@ package:
 	{
 		resetPacket();
 		_socket = new MySQLSocket(_openSocket(_host, _port));
+		clientPreparedCaches_.clear;
 	}
 
 	ubyte[] makeToken(ubyte[] authBuf)
@@ -429,8 +377,6 @@ package:
 		authenticate(greeting);
 	}
 	
-	// Forcefully close the socket without sending the quit command.
-	// Needed in case an error leaves communatations in an undefined or non-recoverable state.
 	void kill()
 	{
 		if(_socket.connected)
@@ -440,15 +386,12 @@ package:
 	
 public:
 
-	//After the connection is created, and the initial invitation is received from the server
-	//client preferences can be set, and authentication can then be attempted.
 	this(string host, string user, string pwd, string db, ushort port = 3306, SvrCapFlags capFlags = defaultClientFlags)
 	{
 		this(&openSocket,
 			host, user, pwd, db, port, capFlags);
 	}
 
-	///ditto
 	private this(
 		OpenSocketCallback openSocket,
 		string host, string user, string pwd, string db, ushort port = 3306, SvrCapFlags capFlags = defaultClientFlags)
@@ -467,26 +410,18 @@ public:
 		connect(capFlags);
 	}
 
-	///ditto
-	//After the connection is created, and the initial invitation is received from the server
-	//client preferences can be set, and authentication can then be attempted.
 	this(string cs, SvrCapFlags capFlags = defaultClientFlags)
 	{
 		string[] a = parseConnectionString(cs);
 		this(a[0], a[1], a[2], a[3], to!ushort(a[4]), capFlags);
 	}
 
-	///ditto
 	this(OpenSocketCallback openSocket, string cs, SvrCapFlags capFlags = defaultClientFlags)
 	{
 		string[] a = parseConnectionString(cs);
 		this(openSocket, a[0], a[1], a[2], a[3], to!ushort(a[4]), capFlags);
 	}
 
-	/++
-	Check whether this Connection is still connected to the server, or if
-	the connection has been closed.
-	+/
 	@property bool closed()
 	{
 		return _open == OpenState.notConnected || !_socket.connected;
@@ -501,22 +436,6 @@ public:
 	///ditto
 	bool amOwner() { return !!_socket; }
 
-	/++
-	Explicitly close the connection.
-	
-	This is a two-stage process. First tell the server we are quitting this
-	connection, and then close the socket.
-	
-	Idiomatic use as follows is suggested:
-	------------------
-	{
-	    auto con = new Connection("localhost:user:password:mysqld");
-	    scope(exit) con.close();
-	    // Use the connection
-	    ...
-	}
-	------------------
-	+/
 	void close()
 	{
 		if (_open == OpenState.authenticated && _socket.connected)
@@ -527,23 +446,11 @@ public:
 		resetPacket();
 	}
 
-	/++
-	Reconnects to the server using the same connection settings originally
-	used to create the Connection.
-
-	Optionally takes a SvrCapFlags, allowing you to reconnect using a different
-	set of server capability flags (most users will not need to do this).
-
-	If the connection is already open, this will do nothing. However, if you
-	request a different set of SvrCapFlags then was originally used to create
-	the Connection, the connection will be closed and then reconnected.
-	+/
 	void reconnect()
 	{
 		reconnect(_clientCapabilities);
 	}
 
-	///ditto
 	void reconnect(SvrCapFlags clientCapabilities)
 	{
 		bool sameCaps = clientCapabilities == _clientCapabilities;
@@ -586,26 +493,6 @@ public:
 		exec(this, "commit");
 	}
 
-	/++
-	Parses a connection string of the form
-	`"host=localhost;port=3306;user=joe;pwd=pass123;db=myappsdb"`
-
-	Port is optional and defaults to 3306.
-
-	Whitespace surrounding any name or value is automatically stripped.
-
-	Returns a five-element array of strings in this order:
-	$(UL
-	$(LI [0]: host)
-	$(LI [1]: user)
-	$(LI [2]: pwd)
-	$(LI [3]: db)
-	$(LI [4]: port)
-	)
-	
-	(TODO: The connection string needs work to allow for semicolons in its parts!)
-	+/
-	//TODO: Replace the return value with a proper struct.
 	static string[] parseConnectionString(string cs)
 	{
 		string[] rv;
@@ -642,12 +529,6 @@ public:
 		return rv;
 	}
 
-	/++
-	Select a current database.
-	
-	Params: dbName = Name of the requested database
-	Throws: MySQLException
-	+/
 	void selectDB(string dbName)
 	{
 		sendCmd(CommandType.INIT_DB, dbName);
@@ -655,44 +536,18 @@ public:
 		_db = dbName;
 	}
 
-	/++
-	Check the server status
-	
-	Returns: An OKErrorPacket from which server status can be determined
-	Throws: MySQLException
-	+/
 	OKErrorPacket pingServer()
 	{
 		sendCmd(CommandType.PING, []);
 		return getCmdResponse();
 	}
 
-	/++
-	Refresh some feature(s) of the server.
-	
-	Returns: An OKErrorPacket from which server status can be determined
-	Throws: MySQLException
-	+/
 	OKErrorPacket refreshServer(RefreshFlags flags)
 	{
 		sendCmd(CommandType.REFRESH, [flags]);
 		return getCmdResponse();
 	}
 
-	/++
-	Get the next Row of a pending result set.
-	
-	This method can be used after either execSQL() or execPrepared() have returned true
-	to retrieve result set rows sequentially.
-	
-	Similar functionality is available via execSQLSequence() and execPreparedSequence() in
-	which case the interface is presented as a forward range of Rows.
-	
-	This method allows you to deal with very large result sets either a row at a time,
-	or by feeding the rows into some suitable container such as a linked list.
-	
-	Returns: A Row object.
-	+/
 	Row getNextRow()
 	{
 		scope(failure) kill();
@@ -718,20 +573,11 @@ public:
 		return rr;
 	}
 
-	/++
-	Flush any outstanding result set elements.
-	
-	When the server responds to a command that produces a result set, it
-	queues the whole set of corresponding packets over the current connection.
-	Before that Connection can embark on any new command, it must receive
-	all of those packets and junk them.
-	http://www.mysqlperformanceblog.com/2007/07/08/mysql-net_write_timeout-vs-wait_timeout-and-protocol-notes/
-	+/
 	ulong purgeResult()
 	{
 		scope(failure) kill();
 
-		_lastCommandID++;
+		_lastCommandId++;
 
 		ulong rows = 0;
 		if (_headersPending)
@@ -762,24 +608,12 @@ public:
 		return rows;
 	}
 
-	/++
-	Get a textual report on the server status.
-	
-	(COM_STATISTICS)
-	+/
 	string serverStats()
 	{
 		sendCmd(CommandType.STATISTICS, []);
 		return cast(string) getPacket();
 	}
 
-	/++
-	Enable multiple statement commands
-	
-	This can be used later if this feature was not requested in the client capability flags.
-	
-	Params: on = Boolean value to turn the capability on or off.
-	+/
 	void enableMultiStatements(bool on)
 	{
 		scope(failure) kill();
@@ -808,13 +642,9 @@ public:
 	/// Current database
 	@property string currentDB() pure const nothrow { return _db; }
 
-	/// After a command that inserted a row into a table with an auto-increment
-	/// ID column, this method allows you to retrieve the last insert ID.
-	@property ulong lastInsertID() pure const nothrow { return _insertID; }
+	@property ulong lastInsertId() pure const nothrow { return _insertId; }
 
-	/// This gets incremented every time a command is issued or results are purged,
-	/// so a ResultRange can tell whether it's been invalidated.
-	@property ulong lastCommandID() pure const nothrow { return _lastCommandID; }
+	@property ulong lastCommandId() pure const nothrow { return _lastCommandId; }
 
 	/// Gets whether rows are pending
 	@property bool rowsPending() pure const nothrow { return _rowsPending; }
@@ -828,4 +658,20 @@ public:
 
 	/// Gets the result header's field descriptions.
 	@property FieldDescription[] resultFieldDescriptions() pure { return _rsh.fieldDescriptions; }
+
+	@property void allowClientPreparedCache(bool enable) {
+		allowClientPreparedCache_ = enable;
+	}
+	
+	@property bool allowClientPreparedCache() {
+		return allowClientPreparedCache_;
+	}
+	
+	@property Prepared[string] clientPreparedCaches() {
+		return clientPreparedCaches_;
+	}
+	
+	void putPreparedCache(string sql, Prepared stmt) {
+		clientPreparedCaches_[sql] = stmt;
+	}
 }

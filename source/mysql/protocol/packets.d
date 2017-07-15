@@ -26,7 +26,7 @@ struct OKErrorPacket
 {
 	bool     error;
 	ulong    affected;
-	ulong    insertID;
+	ulong    insertId;
 	ushort   serverStatus;
 	ushort   warnings;
 	char[5]  sqlState;
@@ -63,7 +63,7 @@ struct OKErrorPacket
 			lcb = packet.consumeIfComplete!LCB();
 			assert(!lcb.isNull);
 			assert(!lcb.isIncomplete);
-			insertID = lcb.value;
+			insertId = lcb.value;
 
 			enforceEx!MYXProtocol(packet.length > 2,
 					format("Malformed OK packet - Missing server status. Expected length > 2, got %d", packet.length));

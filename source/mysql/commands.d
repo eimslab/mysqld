@@ -63,7 +63,7 @@ package bool execQueryImpl(Connection conn, ExecQueryImplInfo info, out ulong ra
 		enforcePacketOK(okp);
 		ra = okp.affected;
 		conn._serverStatus = okp.serverStatus;
-		conn._insertID = okp.insertID;
+		conn._insertId = okp.insertId;
 		rv = false;
 	}
 	else
@@ -200,9 +200,7 @@ package void queryRowTupleImpl(T...)(Connection conn, ExecQueryImplInfo info, re
 			"Tuple "~to!string(i)~" type and column type are not compatible.");
 		args[i] = rr._values[i].get!(typeof(args[i]));
 	}
-	// If there were more rows, flush them away
-	// Question: Should I check in purgeResult and throw if there were - it's very inefficient to
-	// allow sloppy SQL that does not ensure just one row!
+
 	conn.purgeResult();
 }
 

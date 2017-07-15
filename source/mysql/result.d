@@ -283,7 +283,7 @@ private:
 	string[]         _colNames;
 	size_t[string]   _colNameIndicies;
 	ulong            _numRowsFetched;
-	ulong            _commandID; // So we can keep track of when this is invalidated
+	ulong            _commandId; // So we can keep track of when this is invalidated
 
 	void ensureValid() const pure
 	{
@@ -297,7 +297,7 @@ package:
 		_con       = con;
 		_rsh       = rsh;
 		_colNames  = colNames;
-		_commandID = con.lastCommandID;
+		_commandId = con.lastCommandId;
 		popFront();
 	}
 
@@ -309,7 +309,7 @@ public:
 
 	@property bool isValid() const pure nothrow
 	{
-		return _commandID == _con.lastCommandID;
+		return _commandId == _con.lastCommandId;
 	}
 
 	@property bool empty() const pure nothrow

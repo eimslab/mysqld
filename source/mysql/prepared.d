@@ -44,7 +44,16 @@ struct Prepared
 
 Prepared prepare(Connection conn, string sql)
 {
-	return Prepared( refCounted(PreparedImpl(conn, sql)) );
+	if (conn.allowClientPreparedCache && (sql in conn.clientPreparedCaches)) {
+		return conn.clientPreparedCaches[sql];
+	}
+	
+	Prepared stmt = Prepared(refCounted(PreparedImpl(conn, sql)));
+	if (conn.allowClientPreparedCache) {
+		conn.putPreparedCache(sql, stmt);
+	}
+	
+	return stmt;
 }
 
 Prepared prepareFunction(Connection conn, string name, int numArgs)
@@ -53,59 +62,10 @@ Prepared prepareFunction(Connection conn, string name, int numArgs)
 	return prepare(conn, sql);
 }
 
-unittest
-{
-	debug(MYSQL_INTEGRATION_TESTS)
-	{
-		import mysql.test.common;
-		mixin(scopedCn);
-
-		exec(cn, `DROP FUNCTION IF EXISTS hello`);
-		exec(cn, `
-			CREATE FUNCTION hello (s CHAR(20))
-			RETURNS CHAR(50) DETERMINISTIC
-			RETURN CONCAT('Hello ',s,'!')
-		`);
-
-		auto preparedHello = prepareFunction(cn, "hello", 1);
-		preparedHello.setArgs("World");
-		ResultSet rs = preparedHello.querySet();
-		assert(rs.length == 1);
-		assert(rs[0][0] == "Hello World!");
-	}
-}
-
 Prepared prepareProcedure(Connection conn, string name, int numArgs)
 {
 	auto sql = "call " ~ name ~ preparedPlaceholderArgs(numArgs);
 	return prepare(conn, sql);
-}
-
-unittest
-{
-	debug(MYSQL_INTEGRATION_TESTS)
-	{
-		import mysql.test.common;
-		import mysql.test.integration;
-		mixin(scopedCn);
-		initBaseTestTables(cn);
-
-		exec(cn, `DROP PROCEDURE IF EXISTS insert2`);
-		exec(cn, `
-			CREATE PROCEDURE insert2 (IN p1 INT, IN p2 CHAR(50))
-			BEGIN
-				INSERT INTO basetest (intcol, stringcol) VALUES(p1, p2);
-			END
-		`);
-
-		auto preparedInsert2 = prepareProcedure(cn, "insert2", 2);
-		preparedInsert2.setArgs(2001, "inserted string 1");
-		preparedInsert2.exec();
-
-		ResultSet rs = querySet(cn, "SELECT stringcol FROM basetest WHERE intcol=2001");
-		assert(rs.length == 1);
-		assert(rs[0][0] == "inserted string 1");
-	}
 }
 
 private string preparedPlaceholderArgs(int numArgs)
@@ -127,14 +87,6 @@ private string preparedPlaceholderArgs(int numArgs)
 	return sql;
 }
 
-debug(MYSQL_INTEGRATION_TESTS)
-unittest
-{
-	assert(preparedPlaceholderArgs(3) == "(?,?,?)");
-	assert(preparedPlaceholderArgs(2) == "(?,?)");
-	assert(preparedPlaceholderArgs(1) == "(?)");
-	assert(preparedPlaceholderArgs(0) == "()");
-}
 
 struct PreparedImpl
 {
@@ -161,43 +113,6 @@ private:
 	{
 		enforceNotReleased(hStmt);
 		conn.enforceNothingPending();
-	}
-
-	debug(MYSQL_INTEGRATION_TESTS)
-	unittest
-	{
-		import mysql.prepared;
-		import mysql.test.common;
-		mixin(scopedCn);
-
-		cn.exec("DROP TABLE IF EXISTS `enforceNotReleased`");
-		cn.exec("CREATE TABLE `enforceNotReleased` (
-			`val` INTEGER
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8");
-
-		immutable insertSQL = "INSERT INTO `enforceNotReleased` VALUES (1), (2)";
-		immutable selectSQL = "SELECT * FROM `enforceNotReleased`";
-		Prepared preparedInsert;
-		Prepared preparedSelect;
-		int queryTupleResult;
-		assertNotThrown!MYXNotPrepared(preparedInsert = cn.prepare(insertSQL));
-		assertNotThrown!MYXNotPrepared(preparedSelect = cn.prepare(selectSQL));
-		assertNotThrown!MYXNotPrepared(preparedInsert.exec());
-		assertNotThrown!MYXNotPrepared(preparedSelect.querySet());
-		assertNotThrown!MYXNotPrepared(preparedSelect.query().each());
-		assertNotThrown!MYXNotPrepared(preparedSelect.queryRowTuple(queryTupleResult));
-		
-		preparedInsert.release();
-		assertThrown!MYXNotPrepared(preparedInsert.exec());
-		assertNotThrown!MYXNotPrepared(preparedSelect.querySet());
-		assertNotThrown!MYXNotPrepared(preparedSelect.query().each());
-		assertNotThrown!MYXNotPrepared(preparedSelect.queryRowTuple(queryTupleResult));
-
-		preparedSelect.release();
-		assertThrown!MYXNotPrepared(preparedInsert.exec());
-		assertThrown!MYXNotPrepared(preparedSelect.querySet());
-		assertThrown!MYXNotPrepared(preparedSelect.query().each());
-		assertThrown!MYXNotPrepared(preparedSelect.queryRowTuple(queryTupleResult));
 	}
 
 	@disable this(this); // Not copyable
@@ -671,14 +586,6 @@ public:
 	void setArg(T)(size_t index, T val, ParameterSpecialization psn = PSN(0, SQLType.INFER_FROM_D_TYPE, 0, null))
 		if(!isInstanceOf!(Nullable, T))
 	{
-		// Now in theory we should be able to check the parameter type here, since the
-		// protocol is supposed to send us type information for the parameters, but this
-		// capability seems to be broken. This assertion is supported by the fact that
-		// the same information is not available via the MySQL C API either. It is up
-		// to the programmer to ensure that appropriate type information is embodied
-		// in the variant array, or provided explicitly. This sucks, but short of
-		// having a client side SQL parser I don't see what can be done.
-
 		enforceNotReleased();
 		enforceEx!MYX(index < _psParams, "Parameter index out of range.");
 
@@ -751,66 +658,6 @@ public:
 	string sql()
 	{
 		return _sql;
-	}
-
-	debug(MYSQL_INTEGRATION_TESTS)
-	unittest
-	{
-		import mysql.prepared;
-		import mysql.test.common;
-		mixin(scopedCn);
-
-		cn.exec("DROP TABLE IF EXISTS `setNullArg`");
-		cn.exec("CREATE TABLE `setNullArg` (
-			`val` INTEGER
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8");
-
-		immutable insertSQL = "INSERT INTO `setNullArg` VALUES (?)";
-		immutable selectSQL = "SELECT * FROM `setNullArg`";
-		auto preparedInsert = cn.prepare(insertSQL);
-		assert(preparedInsert.sql == insertSQL);
-		ResultSet rs;
-
-		{
-			Nullable!int nullableInt;
-			nullableInt.nullify();
-			preparedInsert.setArg(0, nullableInt);
-			assert(preparedInsert.getArg(0).type == typeid(typeof(null)));
-			nullableInt = 7;
-			preparedInsert.setArg(0, nullableInt);
-			assert(preparedInsert.getArg(0) == 7);
-
-			nullableInt.nullify();
-			preparedInsert.setArgs(nullableInt);
-			assert(preparedInsert.getArg(0).type == typeid(typeof(null)));
-			nullableInt = 7;
-			preparedInsert.setArgs(nullableInt);
-			assert(preparedInsert.getArg(0) == 7);
-		}
-
-		preparedInsert.setArg(0, 5);
-		preparedInsert.exec();
-		rs = cn.querySet(selectSQL);
-		assert(rs.length == 1);
-		assert(rs[0][0] == 5);
-
-		preparedInsert.setArg(0, null);
-		preparedInsert.exec();
-		rs = cn.querySet(selectSQL);
-		assert(rs.length == 2);
-		assert(rs[0][0] == 5);
-		assert(rs[1].isNull(0));
-		assert(rs[1][0].type == typeid(typeof(null)));
-
-		preparedInsert.setArg(0, Variant(null));
-		preparedInsert.exec();
-		rs = cn.querySet(selectSQL);
-		assert(rs.length == 3);
-		assert(rs[0][0] == 5);
-		assert(rs[1].isNull(0));
-		assert(rs[2].isNull(0));
-		assert(rs[1][0].type == typeid(typeof(null)));
-		assert(rs[2][0].type == typeid(typeof(null)));
 	}
 
 	void release()
