@@ -60,7 +60,7 @@ package:
 	void resetPacket()      { _cpn = 0; }
 
 	// For mysql server not support prepared cache.
-	bool allowClientPreparedCache_ = false;
+	bool allowClientPreparedCache_ = true;
 	Prepared[string] clientPreparedCaches_;
 
 	pure const nothrow invariant()
