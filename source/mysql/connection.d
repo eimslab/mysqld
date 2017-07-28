@@ -478,19 +478,39 @@ public:
 		_open = OpenState.connected;
 	}
 
-	void startTransaction()
+	private bool inTransaction()
 	{
-		exec(this, "start transaction");
+		return ((serverStatus & 0x0001) != 0);
 	}
 
-	void rollback()
+	void startTransaction(string File=__FILE__, size_t Line=__LINE__)()
 	{
+		if (inTransaction)
+			throw new Exception("MySQL does not support nested transactions - commit or rollback before starting a new transaction", File, Line);
+
+		exec(this, "start transaction");
+		
+		assert(inTransaction);
+	}
+
+	void rollback(string File=__FILE__, size_t Line=__LINE__)()
+	{
+		if (!inTransaction)
+			throw new Exception("No active transaction", File, Line);
+			
 		exec(this, "rollback");
+
+		assert(!inTransaction);
 	}
 	
-	void commit()
+	void commit(string File=__FILE__, size_t Line=__LINE__)()
 	{
+		if (!inTransaction)
+			throw new Exception("No active transaction", File, Line);
+			
 		exec(this, "commit");
+
+		assert(!inTransaction);
 	}
 
 	static string[] parseConnectionString(string cs)
