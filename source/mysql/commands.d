@@ -42,7 +42,7 @@ package struct ExecQueryImplInfo
 package bool execQueryImpl(Connection conn, ExecQueryImplInfo info, out ulong ra)
 {
 	conn.enforceNothingPending();
-	scope(failure) conn.kill();
+	//scope(failure) conn.kill();
 
 	// Send data
 	if(info.isPrepared)

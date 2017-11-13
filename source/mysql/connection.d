@@ -74,7 +74,7 @@ package:
 
 	ubyte[] getPacket()
 	{
-		scope(failure) kill();
+		//scope(failure) kill();
 
 		ubyte[4] header;
 		_socket.read(header);

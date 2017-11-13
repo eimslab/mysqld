@@ -36,7 +36,7 @@ class MySQLSocket
 
 	void read(ubyte[] dst)
 	{
-		scope(failure) socket.close();
+		//scope(failure) socket.close();
 
 		for (size_t off, len; off < dst.length; off += len) {
 			len = socket.receive(dst[off..$]);

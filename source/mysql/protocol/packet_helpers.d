@@ -65,9 +65,9 @@ TimeDiff toTimeDiff(string s)
 	}
 	td.hours    = cast(ubyte) t%24;
 	td.days     = cast(ubyte) t/24;
-	munch(s, ":");
+	_munch(s, ":");
 	td.minutes  = parse!ubyte(s);
-	munch(s, ":");
+	_munch(s, ":");
 	td.seconds  = parse!ubyte(s);
 	return td;
 }
@@ -109,9 +109,9 @@ TimeOfDay toTimeOfDay(string s)
 	TimeOfDay tod;
 	tod.hour = parse!int(s);
 	enforceEx!MYXProtocol(tod.hour <= 24 && tod.hour >= 0, "Time column value is in time difference form");
-	munch(s, ":");
+	_munch(s, ":");
 	tod.minute = parse!ubyte(s);
-	munch(s, ":");
+	_munch(s, ":");
 	tod.second = parse!ubyte(s);
 	return tod;
 }
@@ -178,9 +178,9 @@ Returns: A populated or default initialized std.datetime.Date struct.
 Date toDate(string s)
 {
 	int year = parse!(ushort)(s);
-	munch(s, "-");
+	_munch(s, "-");
 	int month = parse!(ubyte)(s);
-	munch(s, "-");
+	_munch(s, "-");
 	int day = parse!(ubyte)(s);
 	return Date(year, month, day);
 }
@@ -261,15 +261,15 @@ Returns: A populated or default initialized std.datetime.DateTime struct.
 DateTime toDateTime(string s)
 {
 	int year = parse!(ushort)(s);
-	munch(s, "-");
+	_munch(s, "-");
 	int month = parse!(ubyte)(s);
-	munch(s, "-");
+	_munch(s, "-");
 	int day = parse!(ubyte)(s);
-	munch(s, " ");
+	_munch(s, " ");
 	int hour = parse!(ubyte)(s);
-	munch(s, ":");
+	_munch(s, ":");
 	int minute = parse!(ubyte)(s);
-	munch(s, ":");
+	_munch(s, ":");
 	int second = parse!(ubyte)(s);
 	return DateTime(year, month, day, hour, minute, second);
 }
@@ -1139,4 +1139,52 @@ body
 {
 	dataLength.packInto!(uint, true)(packet);
 	packet[3] = packetNumber;
+}
+
+private S1 _munch(S1, S2)(ref S1 s, S2 pattern) @safe pure @nogc
+{
+    size_t j = s.length;
+    foreach (i, dchar c; s)
+    {
+        if (!_inPattern(c, pattern))
+        {
+            j = i;
+            break;
+        }
+    }
+    scope(exit) s = s[j .. $];
+    return s[0 .. j];
+}
+
+bool _inPattern(S)(dchar c, in S pattern) @safe pure @nogc
+if (isSomeString!S)
+{
+    bool result = false;
+    int range = 0;
+    dchar lastc;
+
+    foreach (size_t i, dchar p; pattern)
+    {
+        if (p == '^' && i == 0)
+        {
+            result = true;
+            if (i + 1 == pattern.length)
+                return (c == p);    // or should this be an error?
+        }
+        else if (range)
+        {
+            range = 0;
+            if (lastc <= c && c <= p || c == p)
+                return !result;
+        }
+        else if (p == '-' && i > result && i + 1 < pattern.length)
+        {
+            range = 1;
+            continue;
+        }
+        else if (c == p)
+            return !result;
+        lastc = p;
+    }
+    return result;
 }
