@@ -47,7 +47,9 @@ class MySQLSocket
 
 	void write(in ubyte[] bytes)
 	{
-		socket.send(bytes);
+	    for (size_t off, len; off < bytes.length; off += len) {
+        		len = socket.send(bytes[off..$]);
+	    }
 	}
 
 	void acquire() { /+ Do nothing +/ }
