@@ -49,6 +49,8 @@ class MySQLSocket
 	{
 	    for (size_t off, len; off < bytes.length; off += len) {
         		len = socket.send(bytes[off..$]);
+        		enforceEx!MYX(len != 0, "Server closed the connection");
+			enforceEx!MYX(len != socket.ERROR, "Received std.socket.Socket.ERROR");
 	    }
 	}
 
