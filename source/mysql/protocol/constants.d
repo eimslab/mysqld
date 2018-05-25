@@ -9,7 +9,7 @@ describing its capabilities.
 
 See_Also: http://dev.mysql.com/doc/internals/en/connection-phase.html#capability-flags
 +/
-enum SvrCapFlags: uint
+enum CapabilityFlags: uint
 {
 	OLD_LONG_PASSWORD   = 0x0_0001, /// Long old-style passwords (Not 4.1+ passwords)
 	FOUND_NOT_AFFECTED  = 0x0_0002, /// Report rows found rather than rows affected

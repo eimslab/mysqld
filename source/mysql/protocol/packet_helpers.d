@@ -26,10 +26,10 @@ Returns: A populated or default initialized TimeDiff struct.
 +/
 TimeDiff toTimeDiff(in ubyte[] a) pure
 {
-	enforceEx!MYXProtocol(a.length, "Supplied byte array is zero length");
+	enforce!MYXProtocol(a.length, "Supplied byte array is zero length");
 	TimeDiff td;
 	uint l = a[0];
-	enforceEx!MYXProtocol(l == 0 || l == 5 || l == 8 || l == 12, "Bad Time length in binary row.");
+	enforce!MYXProtocol(l == 0 || l == 5 || l == 8 || l == 12, "Bad Time length in binary row.");
 	if (l >= 5)
 	{
 		td.negative = (a[1]  != 0);
@@ -84,10 +84,10 @@ Returns: A populated or default initialized std.datetime.TimeOfDay struct.
 +/
 TimeOfDay toTimeOfDay(in ubyte[] a) pure
 {
-	enforceEx!MYXProtocol(a.length, "Supplied byte array is zero length");
+	enforce!MYXProtocol(a.length, "Supplied byte array is zero length");
 	uint l = a[0];
-	enforceEx!MYXProtocol(l == 0 || l == 5 || l == 8 || l == 12, "Bad Time length in binary row.");
-	enforceEx!MYXProtocol(l >= 8, "Time column value is not in a time-of-day format");
+	enforce!MYXProtocol(l == 0 || l == 5 || l == 8 || l == 12, "Bad Time length in binary row.");
+	enforce!MYXProtocol(l >= 8, "Time column value is not in a time-of-day format");
 
 	TimeOfDay tod;
 	tod.hour    = a[6];
@@ -108,7 +108,7 @@ TimeOfDay toTimeOfDay(string s)
 {
 	TimeOfDay tod;
 	tod.hour = parse!int(s);
-	enforceEx!MYXProtocol(tod.hour <= 24 && tod.hour >= 0, "Time column value is in time difference form");
+	enforce!MYXProtocol(tod.hour <= 24 && tod.hour >= 0, "Time column value is in time difference form");
 	_munch(s, ":");
 	tod.minute = parse!ubyte(s);
 	_munch(s, ":");
@@ -156,11 +156,11 @@ Returns: A populated or default initialized std.datetime.Date struct.
 +/
 Date toDate(in ubyte[] a) pure
 {
-	enforceEx!MYXProtocol(a.length, "Supplied byte array is zero length");
+	enforce!MYXProtocol(a.length, "Supplied byte array is zero length");
 	if (a[0] == 0)
 		return Date(0,0,0);
 
-	enforceEx!MYXProtocol(a[0] >= 4, "Binary date representation is too short");
+	enforce!MYXProtocol(a[0] >= 4, "Binary date representation is too short");
 	int year    = (a[2]  << 8) + a[1];
 	int month   = cast(int) a[3];
 	int day     = cast(int) a[4];
@@ -226,11 +226,11 @@ Returns: A populated or default initialized std.datetime.DateTime struct.
 +/
 DateTime toDateTime(in ubyte[] a) pure
 {
-	enforceEx!MYXProtocol(a.length, "Supplied byte array is zero length");
+	enforce!MYXProtocol(a.length, "Supplied byte array is zero length");
 	if (a[0] == 0)
 		return DateTime();
 
-	enforceEx!MYXProtocol(a[0] >= 4, "Supplied ubyte[] is not long enough");
+	enforce!MYXProtocol(a[0] >= 4, "Supplied ubyte[] is not long enough");
 	int year    = (a[2] << 8) + a[1];
 	int month   =  a[3];
 	int day     =  a[4];
@@ -241,7 +241,7 @@ DateTime toDateTime(in ubyte[] a) pure
 	}
 	else
 	{
-		enforceEx!MYXProtocol(a[0] >= 7, "Supplied ubyte[] is not long enough");
+		enforce!MYXProtocol(a[0] >= 7, "Supplied ubyte[] is not long enough");
 		int hour    = a[5];
 		int minute  = a[6];
 		int second  = a[7];
@@ -296,8 +296,8 @@ DateTime toDateTime(ulong x) pure
 	x /= 100;
 	int year   = cast(int) x%10000;
 	// 2038-01-19 03:14:07
-	enforceEx!MYXProtocol(year >= 1970 &&  year < 2039, "Date/time out of range for 2 bit timestamp");
-	enforceEx!MYXProtocol(year == 2038 && (month > 1 || day > 19 || hour > 3 || minute > 14 || second > 7),
+	enforce!MYXProtocol(year >= 1970 &&  year < 2039, "Date/time out of range for 2 bit timestamp");
+	enforce!MYXProtocol(year == 2038 && (month > 1 || day > 19 || hour > 3 || minute > 14 || second > 7),
 			"Date/time out of range for 2 bit timestamp");
 	return DateTime(year, month, day, hour, minute, second);
 }
@@ -405,10 +405,10 @@ in
 }
 body
 {
-	enforceEx!MYXProtocol(packet.length, "Supplied byte array is zero length");
+	enforce!MYXProtocol(packet.length, "Supplied byte array is zero length");
 	uint length = packet.front;
-	enforceEx!MYXProtocol(length == 0 || length == 5 || length == 8 || length == 12, "Bad Time length in binary row.");
-	enforceEx!MYXProtocol(length >= 8, "Time column value is not in a time-of-day format");
+	enforce!MYXProtocol(length == 0 || length == 5 || length == 8 || length == 12, "Bad Time length in binary row.");
+	enforce!MYXProtocol(length >= 8, "Time column value is not in a time-of-day format");
 
 	packet.popFront(); // length
 	auto bytes = packet.consume(length);
@@ -443,7 +443,7 @@ body
 	if(numBytes == 0)
 		return DateTime();
 
-	enforceEx!MYXProtocol(numBytes >= 4, "Supplied packet is not large enough to store DateTime");
+	enforce!MYXProtocol(numBytes >= 4, "Supplied packet is not large enough to store DateTime");
 
 	int year    = packet.consume!ushort();
 	int month   = packet.consume!ubyte();
@@ -453,7 +453,7 @@ body
 	int second  = 0;
 	if(numBytes > 4)
 	{
-		enforceEx!MYXProtocol(numBytes >= 7, "Supplied packet is not large enough to store a DateTime with TimeOfDay");
+		enforce!MYXProtocol(numBytes >= 7, "Supplied packet is not large enough to store a DateTime with TimeOfDay");
 		hour    = packet.consume!ubyte();
 		minute  = packet.consume!ubyte();
 		second  = packet.consume!ubyte();
@@ -731,7 +731,7 @@ SQLValue consumeIfComplete()(ref ubyte[] packet, SQLType sqlType, bool binary, b
 			// See: http://dev.mysql.com/doc/internals/en/binary-protocol-value.html
 			if(sqlType == SQLType.BIT)
 			{
-				enforceEx!MYXProtocol(result.value.length == 1,
+				enforce!MYXProtocol(result.value.length == 1,
 					"Expected BIT to arrive as an LCB with length 1, but got length "~to!string(result.value.length));
 				
 				result.value = result.value[0] == 1;
@@ -884,7 +884,7 @@ body
 	assert(!lcb.isIncomplete);
 	if(lcb.isNull)
 		return null;
-	enforceEx!MYXProtocol(lcb.value <= uint.max, "Protocol Length Coded String is too long");
+	enforce!MYXProtocol(lcb.value <= uint.max, "Protocol Length Coded String is too long");
 	return cast(string)packet.consume(cast(size_t)lcb.value).idup;
 }
 

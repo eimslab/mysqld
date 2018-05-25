@@ -30,7 +30,7 @@ private:
 	static bool[] consumeNullBitmap(ref ubyte[] packet, uint fieldCount) pure
 	{
 		uint bitmapLength = calcBitmapLength(fieldCount);
-		enforceEx!MYXProtocol(packet.length >= bitmapLength, "Packet too small to hold null bitmap for all fields");
+		enforce!MYXProtocol(packet.length >= bitmapLength, "Packet too small to hold null bitmap for all fields");
 		auto bitmap = packet.consume(bitmapLength);
 		return decodeNullBitmap(bitmap, fieldCount);
 	}
@@ -97,7 +97,7 @@ public:
 		{
 			// There's a null byte header on a binary result sequence, followed by some bytes of bitmap
 			// indicating which columns are null
-			enforceEx!MYXProtocol(packet.front == 0, "Expected null header byte for binary result row");
+			enforce!MYXProtocol(packet.front == 0, "Expected null header byte for binary result row");
 			packet.popFront();
 			_nulls = consumeNullBitmap(packet, fieldCount);
 		}
@@ -134,8 +134,8 @@ public:
 
 	inout(Variant) opIndex(size_t i) inout
 	{
-		enforceEx!MYX(_nulls.length > 0, format("Cannot get column index %d. There are no columns", i));
-		enforceEx!MYX(i < _nulls.length, format("Cannot get column index %d. The last available index is %d", i, _nulls.length-1));
+		enforce!MYX(_nulls.length > 0, format("Cannot get column index %d. There are no columns", i));
+		enforce!MYX(i < _nulls.length, format("Cannot get column index %d. The last available index is %d", i, _nulls.length-1));
 		return _values[i];
 	}
 
@@ -153,7 +153,7 @@ public:
 			{
 				if(!_nulls[i])
 				{
-					enforceEx!MYX(_values[i].convertsTo!(typeof(s.tupleof[i].get))(),
+					enforce!MYX(_values[i].convertsTo!(typeof(s.tupleof[i].get))(),
 						"At col "~to!string(i)~" the value is not implicitly convertible to the structure type");
 					s.tupleof[i] = _values[i].get!(typeof(s.tupleof[i].get));
 				}
@@ -164,7 +164,7 @@ public:
 			{
 				if(!_nulls[i])
 				{
-					enforceEx!MYX(_values[i].convertsTo!(typeof(s.tupleof[i]))(),
+					enforce!MYX(_values[i].convertsTo!(typeof(s.tupleof[i]))(),
 						"At col "~to!string(i)~" the value is not implicitly convertible to the structure type");
 					s.tupleof[i] = _values[i].get!(typeof(s.tupleof[i]));
 				}
@@ -211,32 +211,32 @@ public:
 
 	@property inout(Row) front() pure inout
 	{
-		enforceEx!MYX(_curRows.length, "Attempted to get front of an empty ResultSet");
+		enforce!MYX(_curRows.length, "Attempted to get front of an empty ResultSet");
 		return _curRows[0];
 	}
 
 	@property inout(Row) back() pure inout
 	{
-		enforceEx!MYX(_curRows.length, "Attempted to get back on an empty ResultSet");
+		enforce!MYX(_curRows.length, "Attempted to get back on an empty ResultSet");
 		return _curRows[$-1];
 	}
 
 	void popFront() pure
 	{
-		enforceEx!MYX(_curRows.length, "Attempted to popFront() on an empty ResultSet");
+		enforce!MYX(_curRows.length, "Attempted to popFront() on an empty ResultSet");
 		_curRows = _curRows[1..$];
 	}
 
 	void popBack() pure
 	{
-		enforceEx!MYX(_curRows.length, "Attempted to popBack() on an empty ResultSet");
+		enforce!MYX(_curRows.length, "Attempted to popBack() on an empty ResultSet");
 		_curRows = _curRows[0 .. $-1];
 	}
 
 	Row opIndex(size_t i) pure
 	{
-		enforceEx!MYX(_curRows.length, "Attempted to index into an empty ResultSet range.");
-		enforceEx!MYX(i < _curRows.length, "Requested range index out of range");
+		enforce!MYX(_curRows.length, "Attempted to index into an empty ResultSet range.");
+		enforce!MYX(i < _curRows.length, "Requested range index out of range");
 		return _curRows[i];
 	}
 
@@ -250,7 +250,7 @@ public:
 
 	T[string] asAA(T = Variant)()
 	{
-		enforceEx!MYX(_curRows.length, "Attempted use of empty ResultSet as an associative array.");
+		enforce!MYX(_curRows.length, "Attempted use of empty ResultSet as an associative array.");
 		T[string] aa;
 		foreach (size_t i, string s; _colNames)
 			if (front._nulls[i])
@@ -287,7 +287,7 @@ private:
 
 	void ensureValid() const pure
 	{
-		enforceEx!MYXInvalidatedRange(isValid,
+		enforce!MYXInvalidatedRange(isValid,
 			"This ResultRange has been invalidated and can no longer be used.");
 	}
 
@@ -323,14 +323,14 @@ public:
 	@property inout(Row) front() pure inout
 	{
 		ensureValid();
-		enforceEx!MYX(!empty, "Attempted 'front' on exhausted result sequence.");
+		enforce!MYX(!empty, "Attempted 'front' on exhausted result sequence.");
 		return _row;
 	}
 
 	void popFront()
 	{
 		ensureValid();
-		enforceEx!MYX(!empty, "Attempted 'popFront' when no more rows available");
+		enforce!MYX(!empty, "Attempted 'popFront' when no more rows available");
 		_row = _con.getNextRow();
 		_numRowsFetched++;
 	}
@@ -338,7 +338,7 @@ public:
 	T[string] asAA(T = Variant)()
 	{
 		ensureValid();
-		enforceEx!MYX(!empty, "Attempted 'front' on exhausted result sequence.");
+		enforce!MYX(!empty, "Attempted 'front' on exhausted result sequence.");
 		T[string] aa;
 		foreach (size_t i, string s; _colNames)
 			if (_row._nulls[i])

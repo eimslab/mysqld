@@ -116,7 +116,7 @@ package ResultSet querySetImpl(ColumnSpecialization[] csa, bool binary,
 	Connection conn, ExecQueryImplInfo info)
 {
 	ulong ra;
-	enforceEx!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
+	enforce!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
 
 	conn._rsh = ResultSetHeaders(conn, conn._fieldCount);
 	if (csa !is null)
@@ -151,7 +151,7 @@ package ResultRange queryImpl(ColumnSpecialization[] csa,
 	Connection conn, ExecQueryImplInfo info)
 {
 	ulong ra;
-	enforceEx!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
+	enforce!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
 
 	conn._rsh = ResultSetHeaders(conn, conn._fieldCount);
 	if (csa !is null)
@@ -188,15 +188,15 @@ void queryRowTuple(T...)(Connection conn, string sql, ref T args)
 package void queryRowTupleImpl(T...)(Connection conn, ExecQueryImplInfo info, ref T args)
 {
 	ulong ra;
-	enforceEx!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
+	enforce!MYXNoResultRecieved(execQueryImpl(conn, info, ra));
 
 	Row rr = conn.getNextRow();
 	/+if (!rr._valid)   // The result set was empty - not a crime.
 		return;+/
-	enforceEx!MYX(rr._values.length == args.length, "Result column count does not match the target tuple.");
+	enforce!MYX(rr._values.length == args.length, "Result column count does not match the target tuple.");
 	foreach (size_t i, dummy; args)
 	{
-		enforceEx!MYX(typeid(args[i]).toString() == rr._values[i].type.toString(),
+		enforce!MYX(typeid(args[i]).toString() == rr._values[i].type.toString(),
 			"Tuple "~to!string(i)~" type and column type are not compatible.");
 		args[i] = rr._values[i].get!(typeof(args[i]));
 	}

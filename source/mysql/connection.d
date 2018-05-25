@@ -15,16 +15,18 @@ import mysql.protocol.sockets;
 import mysql.result;
 import mysql.prepared;
 
-/// The default `mysql.protocol.constants.SvrCapFlags` used when creating a connection.
-immutable SvrCapFlags defaultClientFlags =
-		SvrCapFlags.OLD_LONG_PASSWORD | SvrCapFlags.ALL_COLUMN_FLAGS |
-		SvrCapFlags.WITH_DB | SvrCapFlags.PROTOCOL41 |
-		SvrCapFlags.SECURE_CONNECTION;// | SvrCapFlags.MULTI_STATEMENTS |
-		//SvrCapFlags.MULTI_RESULTS;
+/// The default `mysql.protocol.constants.CapabilityFlags` used when creating a connection.
+immutable CapabilityFlags defaultClientFlags =
+		CapabilityFlags.OLD_LONG_PASSWORD | CapabilityFlags.ALL_COLUMN_FLAGS |
+		CapabilityFlags.WITH_DB | CapabilityFlags.PROTOCOL41 |
+		CapabilityFlags.SECURE_CONNECTION;// | CapabilityFlags.MULTI_STATEMENTS |
+		//CapabilityFlags.MULTI_RESULTS;
 
 class Connection
 {
+
 package:
+
 	enum OpenState
 	{
 		notConnected,
@@ -35,7 +37,7 @@ package:
 	OpenState   _open;
 	MySQLSocket _socket;
 
-	SvrCapFlags _sCaps, _cCaps;
+	CapabilityFlags _sCaps, _cCaps;
 	uint    _sThread;
 	ushort  _serverStatus;
 	ubyte   _sCharSet, _protocol;
@@ -69,7 +71,7 @@ package:
 
 	void enforceNothingPending()
 	{
-		enforceEx!MYXDataPending(!hasPending);
+		enforce!MYXDataPending(!hasPending);
 	}
 
 	ubyte[] getPacket()
@@ -80,7 +82,7 @@ package:
 		_socket.read(header);
 		// number of bytes always set as 24-bit
 		uint numDataBytes = (header[2] << 16) + (header[1] << 8) + header[0];
-		enforceEx!MYXProtocol(header[3] == pktNumber, "Server packet out of order");
+		enforce!MYXProtocol(header[3] == pktNumber, "Server packet out of order");
 		bumpPacket();
 
 		ubyte[] packet = new ubyte[numDataBytes];
@@ -136,7 +138,7 @@ package:
 	}
 	body
 	{
-		enforceEx!MYX(!(_headersPending || _rowsPending),
+		enforce!MYX(!(_headersPending || _rowsPending),
 			"There are result set elements pending - purgeResult() required.");
 
 		scope(failure) kill();
@@ -228,14 +230,14 @@ package:
 	{
 		scope(failure) kill();
 
-		_sCaps = cast(SvrCapFlags)packet.consume!ushort(); // server_capabilities (lower bytes)
+		_sCaps = cast(CapabilityFlags)packet.consume!ushort(); // server_capabilities (lower bytes)
 		_sCharSet = packet.consume!ubyte(); // server_language
 		_serverStatus = packet.consume!ushort(); //server_status
-		_sCaps += cast(SvrCapFlags)(packet.consume!ushort() << 16); // server_capabilities (upper bytes)
-		_sCaps |= SvrCapFlags.OLD_LONG_PASSWORD; // Assumed to be set since v4.1.1, according to spec
+		_sCaps += cast(CapabilityFlags)(packet.consume!ushort() << 16); // server_capabilities (upper bytes)
+		_sCaps |= CapabilityFlags.OLD_LONG_PASSWORD; // Assumed to be set since v4.1.1, according to spec
 
-		enforceEx!MYX(_sCaps & SvrCapFlags.PROTOCOL41, "Server doesn't support protocol v4.1");
-		enforceEx!MYX(_sCaps & SvrCapFlags.SECURE_CONNECTION, "Server doesn't support protocol v4.1 connection");
+		enforce!MYX(_sCaps & CapabilityFlags.PROTOCOL41, "Server doesn't support protocol v4.1");
+		enforce!MYX(_sCaps & CapabilityFlags.SECURE_CONNECTION, "Server doesn't support protocol v4.1 connection");
 	}
 
 	ubyte[] parseGreeting()
@@ -247,7 +249,7 @@ package:
 		if (packet.length > 0 && packet[0] == ResultPacketMarker.error)
 		{
 			auto okp = OKErrorPacket(packet);
-			enforceEx!MYX(!okp.error, "Connection failure: " ~ cast(string) okp.message);
+			enforce!MYX(!okp.error, "Connection failure: " ~ cast(string) okp.message);
 		}
 
 		_protocol = packet.consume!ubyte();
@@ -262,7 +264,7 @@ package:
 		authBuf.length = 255;
 		authBuf[0..8] = packet.consume(8)[]; // scramble_buff
 
-		enforceEx!MYXProtocol(packet.consume!ubyte() == 0, "filler should always be 0");
+		enforce!MYXProtocol(packet.consume!ubyte() == 0, "filler should always be 0");
 
 		consumeServerInfo(packet);
 
@@ -271,11 +273,11 @@ package:
 
 		// rest of the scramble
 		auto len = packet.countUntil(0);
-		enforceEx!MYXProtocol(len >= 12, "second part of scramble buffer should be at least 12 bytes");
+		enforce!MYXProtocol(len >= 12, "second part of scramble buffer should be at least 12 bytes");
 		enforce(authBuf.length > 8+len);
 		authBuf[8..8+len] = packet.consume(len)[];
 		authBuf.length = 8+len; // cut to correct size
-		enforceEx!MYXProtocol(packet.consume!ubyte() == 0, "Excepted \\0 terminating scramble buf");
+		enforce!MYXProtocol(packet.consume!ubyte() == 0, "Excepted \\0 terminating scramble buf");
 
 		return authBuf;
 	}
@@ -309,9 +311,9 @@ package:
 		return result.dup;
 	}
 
-	SvrCapFlags getCommonCapabilities(SvrCapFlags server, SvrCapFlags client) pure
+	CapabilityFlags getCommonCapabilities(CapabilityFlags server, CapabilityFlags client) pure
 	{
-		SvrCapFlags common;
+		CapabilityFlags common;
 		uint filter = 1;
 		foreach (size_t i; 0..uint.sizeof)
 		{
@@ -324,14 +326,14 @@ package:
 		return common;
 	}
 
-	void setClientFlags(SvrCapFlags capFlags)
+	void setClientFlags(CapabilityFlags caps)
 	{
-		_cCaps = getCommonCapabilities(_sCaps, capFlags);
+		_cCaps = getCommonCapabilities(_sCaps, caps);
 
 		// We cannot operate in <4.1 protocol, so we'll force it even if the user
 		// didn't supply it
-		_cCaps |= SvrCapFlags.PROTOCOL41;
-		_cCaps |= SvrCapFlags.SECURE_CONNECTION;
+		_cCaps |= CapabilityFlags.PROTOCOL41;
+		_cCaps |= CapabilityFlags.SECURE_CONNECTION;
 	}
 
 	void authenticate(ubyte[] greeting)
@@ -351,13 +353,13 @@ package:
 
 		auto packet = getPacket();
 		auto okp = OKErrorPacket(packet);
-		enforceEx!MYX(!okp.error, "Authentication failure: " ~ cast(string) okp.message);
+		enforce!MYX(!okp.error, "Authentication failure: " ~ cast(string) okp.message);
 		_open = OpenState.authenticated;
 	}
 
-	SvrCapFlags _clientCapabilities;
+	CapabilityFlags _clientCapabilities;
 
-	void connect(SvrCapFlags clientCapabilities)
+	void connect(CapabilityFlags clientCapabilities)
 	in
 	{
 		assert(closed);
@@ -383,43 +385,57 @@ package:
 			_socket.close();
 		_open = OpenState.notConnected;
 	}
-	
+
+package:
+
+    bool _busy = false;
+
+    @property bool busy()
+    {
+        return _busy;
+    }
+
+    @property void busy(bool value)
+    {
+        _busy = value;
+    }
+
 public:
 
-	this(string host, string user, string pwd, string db, ushort port = 3306, SvrCapFlags capFlags = defaultClientFlags)
+	this(string host, string user, string pwd, string db, ushort port = 3306, CapabilityFlags caps = defaultClientFlags)
 	{
 		this(&openSocket,
-			host, user, pwd, db, port, capFlags);
+			host, user, pwd, db, port, caps);
 	}
 
 	private this(
 		OpenSocketCallback openSocket,
-		string host, string user, string pwd, string db, ushort port = 3306, SvrCapFlags capFlags = defaultClientFlags)
+		string host, string user, string pwd, string db, ushort port = 3306, CapabilityFlags caps = defaultClientFlags)
 	{
-		enforceEx!MYX(capFlags & SvrCapFlags.PROTOCOL41, "This client only supports protocol v4.1");
-		enforceEx!MYX(capFlags & SvrCapFlags.SECURE_CONNECTION, "This client only supports protocol v4.1 connection");
+		enforce!MYX(caps & CapabilityFlags.PROTOCOL41, "This client only supports protocol v4.1");
+		enforce!MYX(caps & CapabilityFlags.SECURE_CONNECTION, "This client only supports protocol v4.1 connection");
 
 		_host = host;
 		_user = user;
-		_pwd = pwd;
-		_db = db;
+		_pwd  = pwd;
+		_db   = db;
 		_port = port;
 
 		_openSocket = openSocket;
 
-		connect(capFlags);
+		connect(caps);
 	}
 
-	this(string cs, SvrCapFlags capFlags = defaultClientFlags)
+	this(string cs, CapabilityFlags caps = defaultClientFlags)
 	{
 		string[] a = parseConnectionString(cs);
-		this(a[0], a[1], a[2], a[3], to!ushort(a[4]), capFlags);
+		this(a[0], a[1], a[2], a[3], to!ushort(a[4]), caps);
 	}
 
-	this(OpenSocketCallback openSocket, string cs, SvrCapFlags capFlags = defaultClientFlags)
+	this(OpenSocketCallback openSocket, string cs, CapabilityFlags caps = defaultClientFlags)
 	{
 		string[] a = parseConnectionString(cs);
-		this(openSocket, a[0], a[1], a[2], a[3], to!ushort(a[4]), capFlags);
+		this(openSocket, a[0], a[1], a[2], a[3], to!ushort(a[4]), caps);
 	}
 
 	@property bool closed()
@@ -451,7 +467,7 @@ public:
 		reconnect(_clientCapabilities);
 	}
 
-	void reconnect(SvrCapFlags clientCapabilities)
+	void reconnect(CapabilityFlags clientCapabilities)
 	{
 		bool sameCaps = clientCapabilities == _clientCapabilities;
 		if(!closed)
@@ -522,7 +538,7 @@ public:
 		foreach (s; a)
 		{
 			string[] a2 = split(s, "=");
-			enforceEx!MYX(a2.length == 2, "Bad connection string: " ~ cs);
+			enforce!MYX(a2.length == 2, "Bad connection string: " ~ cs);
 			string name = strip(a2[0]);
 			string val = strip(a2[1]);
 			switch (name)
@@ -609,7 +625,7 @@ public:
 					_headersPending = false;
 					break;
 				}
-				enforceEx!MYXProtocol(i < _fieldCount,
+				enforce!MYXProtocol(i < _fieldCount,
 					text("Field header count (", _fieldCount, ") exceeded but no EOF packet found."));
 			}
 		}
@@ -646,7 +662,7 @@ public:
 
 		// For some reason this command gets an EOF packet as response
 		auto packet = getPacket();
-		enforceEx!MYXProtocol(packet[0] == 254 && packet.length == 5, "Unexpected response to SET_OPTION command");
+		enforce!MYXProtocol(packet[0] == 254 && packet.length == 5, "Unexpected response to SET_OPTION command");
 	}
 
 	/// Return the in-force protocol number

@@ -101,7 +101,7 @@ private:
 
 	static void enforceNotReleased(uint hStmt)
 	{
-		enforceEx!MYXNotPrepared(hStmt);
+		enforce!MYXNotPrepared(hStmt);
 	}
 
 	void enforceReadyForCommand()
@@ -589,7 +589,7 @@ public:
 		if(!isInstanceOf!(Nullable, T))
 	{
 		enforceNotReleased();
-		enforceEx!MYX(index < _psParams, "Parameter index out of range.");
+		enforce!MYX(index < _psParams, "Parameter index out of range.");
 
 		_inParams[index] = val;
 		psn.pIndex = index;
@@ -609,7 +609,7 @@ public:
 		if(T.length == 0 || !is(T[0] == Variant[]))
 	{
 		enforceNotReleased();
-		enforceEx!MYX(args.length == _psParams, "Argument list supplied does not match the number of parameters.");
+		enforce!MYX(args.length == _psParams, "Argument list supplied does not match the number of parameters.");
 
 		foreach (size_t i, arg; args)
 			setArg(i, arg);
@@ -618,7 +618,7 @@ public:
 	void setArgs(Variant[] va, ParameterSpecialization[] psnList= null)
 	{
 		enforceNotReleased();
-		enforceEx!MYX(va.length == _psParams, "Param count supplied does not match prepared statement");
+		enforce!MYX(va.length == _psParams, "Param count supplied does not match prepared statement");
 		_inParams[] = va[];
 		if (psnList !is null)
 		{
@@ -630,7 +630,7 @@ public:
 	void setArgs(string[] sa, ParameterSpecialization[] psnList= null)
 	{
 		enforceNotReleased();
-		enforceEx!MYX(sa.length == _psParams, "Param count supplied does not match prepared statement");
+		enforce!MYX(sa.length == _psParams, "Param count supplied does not match prepared statement");
 		Variant[] va;
 		foreach(str; sa)
 		{
@@ -647,7 +647,7 @@ public:
 	Variant getArg(size_t index)
 	{
 		enforceNotReleased();
-		enforceEx!MYX(index < _psParams, "Parameter index out of range.");
+		enforce!MYX(index < _psParams, "Parameter index out of range.");
 		return _inParams[index];
 	}
 

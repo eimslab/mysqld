@@ -7,6 +7,6 @@ public import mysql.exceptions;
 public import mysql.metadata;
 public import mysql.pool;
 public import mysql.prepared;
-public import mysql.protocol.constants : SvrCapFlags;
+public import mysql.protocol.constants : CapabilityFlags;
 public import mysql.result;
 public import mysql.types;
